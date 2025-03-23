@@ -1,2 +1,4 @@
 /myenv
 /.mypy-cache
+/lambda_package
+/lambda_package.zip
