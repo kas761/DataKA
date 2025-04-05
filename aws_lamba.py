@@ -3,6 +3,7 @@ import zipfile
 import os
 import logging
 import json
+import uuid
 import pandas as pd
 from io import StringIO
 
@@ -72,15 +73,6 @@ class S3Utils:
                 print(f"Error creating bucket {self.bucket_name}: {e}")
                 raise
 
-    def upload_files_to_s3(self, files):
-        for file in files:
-            file_key = os.path.basename(file)
-            try:
-                self.s3_client.upload_file(file, self.bucket_name, file_key)
-                print(f"File uploaded successfully to {self.bucket_name}/{file_key}")
-            except Exception as e:
-                print(f"Error uploading file {file}: {e}")
-
     def lambda_handler(self, event, context):
         logging.info(f"Event: {json.dumps(event)}")
 
@@ -143,7 +135,7 @@ class S3Utils:
             # Add permission for S3 to invoke Lambda
             self.lambda_client.add_permission(
                 FunctionName=lambda_function_name,
-                StatementId="unique-statement-id",  # Ensure this is unique
+                StatementId=f"unique-statement-id-{uuid.uuid4()}",  # Ensure this is unique
                 Action="lambda:InvokeFunction",
                 Principal="s3.amazonaws.com",
                 SourceArn=f"arn:aws:s3:::{self.bucket_name}"
@@ -157,6 +149,15 @@ class S3Utils:
             print(f"Trigger added for {lambda_function_name} on bucket {self.bucket_name}")
         except Exception as e:
             print(f"Error adding trigger: {e}")
+
+    def upload_files_to_s3(self, files):
+        for file in files:
+            file_key = os.path.basename(file)
+            try:
+                self.s3_client.upload_file(file, self.bucket_name, file_key)
+                print(f"File uploaded successfully to {self.bucket_name}/{file_key}")
+            except Exception as e:
+                print(f"Error uploading file {file}: {e}")
 
 
 if __name__ == '__main__':
@@ -172,9 +173,6 @@ if __name__ == '__main__':
     account_id, role_arn = s3_utils.get_secret(secret_name)
 
     if account_id and role_arn:
-        # Upload files to the bucket
-        s3_utils.upload_files_to_s3(files)
-
         # Zip the Lambda function
         s3_utils.zip_lambda_function('lambda_function.zip', 'lambda_function.py')
 
@@ -183,3 +181,6 @@ if __name__ == '__main__':
 
         # Add the trigger to the S3 bucket
         s3_utils.add_s3_trigger(lambda_name, account_id, region)
+
+        # Upload files to the bucket
+        s3_utils.upload_files_to_s3(files)
