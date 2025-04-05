@@ -3,7 +3,8 @@ import pandas as pd
 red_wine = pd.read_csv("winequality-red.csv", delimiter=";")
 white_wine = pd.read_csv("winequality-white.csv", delimiter=";")
 #wine = pd.read_csv("winequality.csv", delimiter=";")
-
+wine = 'winequality-red.csv'
+print(wine[12:].replace('.csv', ''))
 red_wine["wine_type"] = 'red'
 white_wine["wine_type"] = 'white'
 
