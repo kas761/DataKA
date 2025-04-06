@@ -125,17 +125,31 @@ class S3Utils:
         notification = {
             'LambdaFunctionConfigurations': [
                 {
-                    'LambdaFunctionArn': lambda_arn,
-                    'Events': ['s3:ObjectCreated:*']
+                'LambdaFunctionArn': lambda_arn,
+                'Events': ['s3:ObjectCreated:*'],
+                'Filter': {
+                    'Key': {
+                        'FilterRules': [
+                            {
+                                'Name': 'suffix',
+                                'Value': '.csv'  # Only trigger for .csv files
+                            },
+                            {
+                                'Name': 'prefix',
+                                'Value': 'winequality-'  # Only trigger for files with 'winequality-' in the name
+                            }
+                        ]
+                    }
                 }
-            ]
-        }
+            }
+        ]
+    }
 
         try:
             # Add permission for S3 to invoke Lambda
             self.lambda_client.add_permission(
                 FunctionName=lambda_function_name,
-                StatementId=f"unique-statement-id-{uuid.uuid4()}",  # Ensure this is unique
+                StatementId=f"unique-statement-id-{uuid.uuid4()}",
                 Action="lambda:InvokeFunction",
                 Principal="s3.amazonaws.com",
                 SourceArn=f"arn:aws:s3:::{self.bucket_name}"
