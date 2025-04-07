@@ -2,7 +2,6 @@ from fastapi import FastAPI, Query, HTTPException, Header, Depends
 import boto3
 import json
 import os
-import logging
 
 # uvicorn fast_api:app --reload
 
@@ -13,10 +12,10 @@ S3_CLIENT = boto3.client('s3', region_name=REGION)
 API_KEY = os.getenv('API_KEY')
 
 class DataProcessor:
-    def __init__(self, region: str, bucket_name: str):
-        self.s3_client = boto3.client('s3', region_name=region)
+    def __init__(self, s3_client= S3_CLIENT, region=REGION, bucket_name=BUCKET_NAME):
+        self.s3_client = s3_client
         self.bucket_name = bucket_name
-        logging.basicConfig(level=logging.DEBUG)
+        self.region = region
     
     def process_json_data(self, file_key: str):
         try:
@@ -51,7 +50,7 @@ class DataProcessor:
 app = FastAPI()
 
 # Instantiate the DataProcessor class
-data_processor = DataProcessor(region=REGION, bucket_name=BUCKET_NAME)
+data_processor = DataProcessor(s3_client= S3_CLIENT, region=REGION, bucket_name=BUCKET_NAME)
 
 @app.get("/process_data")
 async def process_data_endpoint(quality: str = Query(..., alias="qualityquery"), api_key: str = Header(API_KEY)):
