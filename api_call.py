@@ -6,7 +6,7 @@ url = "http://127.0.0.1:8000/process_data"
 
 
 headers = {
-    "X-API-Key": os.getenv('API_KEY')
+    "API-Key": os.getenv('API_KEY')
 }
 
 # For high quality data

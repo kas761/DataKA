@@ -22,11 +22,11 @@ secrets_manager_client = boto3.client('secretsmanager', region_name=region)
 LAYER_ARN = f'arn:aws:lambda:eu-north-1:336392948345:layer:AWSSDKPandas-Python38:29'  # Update the ARN if necessary
 
 class S3Utils:
-    def __init__(self, bucket_name, region=region):
+    def __init__(self, bucket_name: str, s3_client=None, region=region):
         self.bucket_name = bucket_name
-        self.s3_client = boto3.client('s3', region_name=region)
-        self.lambda_client = boto3.client('lambda', region_name=region)
-        self.secrets_manager_client = boto3.client('secretsmanager', region_name=region)
+        self.s3_client = s3_client or boto3.client('s3', region_name=region)
+        self.lambda_client = lambda_client or boto3.client('lambda', region_name=region)
+        self.secrets_manager_client = secrets_manager_client or boto3.client('secretsmanager', region_name=region)
         self.create_s3_bucket()
 
     def list_s3_buckets(self):
