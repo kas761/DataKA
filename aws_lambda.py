@@ -27,7 +27,9 @@ class S3Utils:
         self.s3_client = s3_client or boto3.client('s3', region_name=region)
         self.lambda_client = lambda_client or boto3.client('lambda', region_name=region)
         self.secrets_manager_client = secrets_manager_client or boto3.client('secretsmanager', region_name=region)
+        self.sqs_client = boto3.client('sqs', region_name=region)  # Initialize SQS client
         self.create_s3_bucket()
+        self.queue_url = None
 
     def list_s3_buckets(self):
         response = self.s3_client.list_buckets()
@@ -125,25 +127,25 @@ class S3Utils:
         notification = {
             'LambdaFunctionConfigurations': [
                 {
-                'LambdaFunctionArn': lambda_arn,
-                'Events': ['s3:ObjectCreated:*'],
-                'Filter': {
-                    'Key': {
-                        'FilterRules': [
-                            {
-                                'Name': 'suffix',
-                                'Value': '.csv'  # Only trigger for .csv files
-                            },
-                            {
-                                'Name': 'prefix',
-                                'Value': 'winequality-'  # Only trigger for files with 'winequality-' in the name
-                            }
-                        ]
+                    'LambdaFunctionArn': lambda_arn,
+                    'Events': ['s3:ObjectCreated:*'],
+                    'Filter': {
+                        'Key': {
+                            'FilterRules': [
+                                {
+                                    'Name': 'suffix',
+                                    'Value': '.csv'  # Only trigger for .csv files
+                                },
+                                {
+                                    'Name': 'prefix',
+                                    'Value': 'winequality-'  # Only trigger for files with 'winequality-' in the name
+                                }
+                            ]
+                        }
                     }
                 }
-            }
-        ]
-    }
+            ]
+        }
 
         try:
             # Add permission for S3 to invoke Lambda
@@ -154,7 +156,7 @@ class S3Utils:
                 Principal="s3.amazonaws.com",
                 SourceArn=f"arn:aws:s3:::{self.bucket_name}"
             )
-            
+
             # Set up the bucket notification
             self.s3_client.put_bucket_notification_configuration(
                 Bucket=self.bucket_name,
@@ -163,6 +165,7 @@ class S3Utils:
             print(f"Trigger added for {lambda_function_name} on bucket {self.bucket_name}")
         except Exception as e:
             print(f"Error adding trigger: {e}")
+
 
     def upload_files_to_s3(self, files):
         for file in files:
@@ -173,7 +176,85 @@ class S3Utils:
             except Exception as e:
                 print(f"Error uploading file {file}: {e}")
 
+    def create_sqs_queue(self, queue_name):
+        try:
+            # Create SQS queue
+            response = self.sqs_client.create_queue(
+                QueueName=queue_name,
+                Attributes={
+                    'VisibilityTimeout': '60'  # Set visibility timeout for the queue
+                }
+            )
+            print(f"SQS Queue '{queue_name}' created successfully!")
+            self.queue_url = response['QueueUrl']  # Store the Queue URL
+            return self.queue_url, queue_name  # Return the Queue URL
+        except Exception as e:
+            print(f"Error creating SQS queue: {e}")
+            return None
+        
+    def get_queue_url(self):
+        return self.queue_url
 
+    def add_s3_to_sqs_notification(self, queue_name):
+        queue_arn = f'arn:aws:sqs:{region}:{account_id}:{queue_name}'
+        try:
+            # Set up S3 notification to trigger SQS for new .csv files
+            notification = {
+                'QueueConfigurations': [
+                    {
+                        'QueueArn': queue_arn,
+                        'Events': ['s3:ObjectCreated:*'],
+                        'Filter': {
+                            'Key': {
+                                'FilterRules': [
+                                    {
+                                        'Name': 'suffix',
+                                        'Value': '.csv'  # Only trigger for .csv files
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+            # Apply the bucket notification configuration
+            self.s3_client.put_bucket_notification_configuration(
+                Bucket=self.bucket_name,
+                NotificationConfiguration=notification
+            )
+            print(f"S3 bucket notifications set up for queue {queue_name}")
+
+            # Add policy to the SQS queue allowing S3 to send messages to it
+            sqs_policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "s3.amazonaws.com"
+                        },
+                        "Action": "SQS:SendMessage",
+                        "Resource": queue_arn,
+                        "Condition": {
+                            "ArnLike": {
+                                "aws:SourceArn": f"arn:aws:s3:::{self.bucket_name}"
+                            }
+                        }
+                    }
+                ]
+            }
+
+            # Apply the policy to the SQS queue
+            self.sqs_client.set_queue_attributes(
+                QueueUrl=self.queue_url,
+                Attributes={
+                    'Policy': json.dumps(sqs_policy)
+                }
+            )
+            print(f"Policy applied to SQS queue {queue_name} to allow S3 notifications.")
+        except Exception as e:
+            print(f"Error setting up S3 to SQS notification: {e}")
+        
 if __name__ == '__main__':
     s3_utils = S3Utils(bucket_name)
 
@@ -198,3 +279,12 @@ if __name__ == '__main__':
 
         # Upload files to the bucket
         s3_utils.upload_files_to_s3(files)
+
+        queue_url, queue_name = s3_utils.create_sqs_queue("my-sqs-queue")
+        print(f"SQS Queue URL: {queue_url}")  # This will print the queue URL
+
+        # If you need to get the URL later, you can call:
+        stored_queue_url = s3_utils.get_queue_url()
+        print(f"Stored SQS Queue URL: {stored_queue_url}")  # This will print the stored queue URL
+
+        s3_utils.add_s3_to_sqs_notification(queue_name)
