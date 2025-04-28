@@ -1,47 +1,55 @@
 import boto3
+import json
 import time
-from aws_lambda import S3Utils
 
-def poll_sqs_queue(sqs_client, queue_url):
-    while True:
-        try:
-            # Receive messages from the queue
-            response = sqs_client.receive_message(
+def poll_sqs_queue(queue_url, region='eu-north-1'):
+
+    sqs = boto3.client('sqs', region_name=region)
+    
+    print(f"Starting to poll SQS queue: {queue_url}")
+    print("Press Ctrl+C to stop polling")
+    print("-" * 50)
+    
+    try:
+        while True:
+            response = sqs.receive_message(
                 QueueUrl=queue_url,
-                AttributeNames=['All'],
-                MaxNumberOfMessages=1,  # Adjust if you want more messages at once
-                WaitTimeSeconds=20  # Long poll for 20 seconds
+                MaxNumberOfMessages=5,
+                WaitTimeSeconds=10
             )
-
-            # If there are messages in the queue
+            
             if 'Messages' in response:
                 for message in response['Messages']:
-                    # Process the message (this is the S3 event notification)
-                    print("Received message:", message['Body'])
+                    receipt_handle = message['ReceiptHandle']
+                    
+                    try:
+                        body = json.loads(message['Body'])
+                        if 'Message' in body:
+                            s3_event = json.loads(body['Message'])
+                            if 'Records' in s3_event:
+                                for record in s3_event['Records']:
+                                    if 's3' in record:
+                                        bucket = record['s3']['bucket']['name']
+                                        file_name = record['s3']['object']['key']
+                                        print(f"New file uploaded: {file_name}")
+                                        print(f"Bucket: {bucket}")
+                                        print(f"Event type: {record['eventName']}")
+                                        
+                    except:
+                        print("Could not parse message")
 
-                    # Delete the message from the queue after processing
-                    sqs_client.delete_message(
+                    sqs.delete_message(
                         QueueUrl=queue_url,
-                        ReceiptHandle=message['ReceiptHandle']
+                        ReceiptHandle=receipt_handle
                     )
-
-        except Exception as e:
-            print(f"Error receiving messages from SQS: {e}")
-            time.sleep(5)
+            else:
+                print(".", end="", flush=True)
+                time.sleep(2)
+            
+    except KeyboardInterrupt:
+        print("\nStopping SQS polling")
 
 if __name__ == "__main__":
-    # Initialize S3Utils instance and get the queue URL
-    bucket_name = 'your-bucket-name'
-    s3_utils = S3Utils(bucket_name)
-    
-    # Ensure the queue is created first and get the URL
-    queue_url = s3_utils.create_sqs_queue('my-sqs-queue')  # This creates the queue and returns the URL
-    
-    if queue_url:
-        # Set up SQS client
-        sqs_client = boto3.client('sqs', region_name='eu-north-1')
-        
-        print(f"Starting to poll the SQS queue at {queue_url}...")
-        poll_sqs_queue(sqs_client, queue_url)
-    else:
-        print("Failed to create or retrieve SQS Queue URL.")
+
+    queue_url = input("Enter your SQS Queue URL: ")
+    poll_sqs_queue(queue_url)

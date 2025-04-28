@@ -196,35 +196,15 @@ class S3Utils:
         return self.queue_url
 
     def add_s3_to_sqs_notification(self, queue_name):
-        queue_arn = f'arn:aws:sqs:{region}:{account_id}:{queue_name}'
         try:
-            # Set up S3 notification to trigger SQS for new .csv files
-            notification = {
-                'QueueConfigurations': [
-                    {
-                        'QueueArn': queue_arn,
-                        'Events': ['s3:ObjectCreated:*'],
-                        'Filter': {
-                            'Key': {
-                                'FilterRules': [
-                                    {
-                                        'Name': 'suffix',
-                                        'Value': '.csv'  # Only trigger for .csv files
-                                    }
-                                ]
-                            }
-                        }
-                    }
-                ]
-            }
-            # Apply the bucket notification configuration
-            self.s3_client.put_bucket_notification_configuration(
-                Bucket=self.bucket_name,
-                NotificationConfiguration=notification
+            # Get the queue ARN directly from AWS
+            queue_attributes = self.sqs_client.get_queue_attributes(
+                QueueUrl=self.queue_url,
+                AttributeNames=['QueueArn']
             )
-            print(f"S3 bucket notifications set up for queue {queue_name}")
-
-            # Add policy to the SQS queue allowing S3 to send messages to it
+            queue_arn = queue_attributes['Attributes']['QueueArn']
+            
+            # First, add policy to the SQS queue allowing S3 to send messages
             sqs_policy = {
                 "Version": "2012-10-17",
                 "Statement": [
@@ -244,7 +224,7 @@ class S3Utils:
                 ]
             }
 
-            # Apply the policy to the SQS queue
+            # Apply the policy
             self.sqs_client.set_queue_attributes(
                 QueueUrl=self.queue_url,
                 Attributes={
@@ -252,6 +232,33 @@ class S3Utils:
                 }
             )
             print(f"Policy applied to SQS queue {queue_name} to allow S3 notifications.")
+            
+            # Then set up the S3 notification
+            notification = {
+                'QueueConfigurations': [
+                    {
+                        'QueueArn': queue_arn,
+                        'Events': ['s3:ObjectCreated:*'],
+                        'Filter': {
+                            'Key': {
+                                'FilterRules': [
+                                    {
+                                        'Name': 'suffix',
+                                        'Value': '.csv'
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+            
+            self.s3_client.put_bucket_notification_configuration(
+                Bucket=self.bucket_name,
+                NotificationConfiguration=notification
+            )
+            print(f"S3 bucket notifications set up for queue {queue_name}")
+        
         except Exception as e:
             print(f"Error setting up S3 to SQS notification: {e}")
         
